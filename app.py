@@ -6,15 +6,19 @@ IT Helpdesk → Google Sheets (Service Account via Streamlit Secrets)
 - Form nhập dùng date_input + time_input
 """
 
-import io
 import json
-from datetime import datetime, timedelta
-from dateutil import tz
-import pandas as pd
-import streamlit as st
-SHEET_ID = st.secrets["SHEET_ID"]
-import gspread
 from google.oauth2.service_account import Credentials
+import gspread
+import streamlit as st
+
+def get_gspread_client_service():
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    sa_info = dict(st.secrets["gcp_service_account"])
+creds = Credentials.from_service_account_info(sa_info, scopes=scopes)     #
+    return gspread.authorize(creds)
 
 # =========================
 # Cấu hình chung

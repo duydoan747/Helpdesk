@@ -17,7 +17,7 @@ def get_gspread_client_service():
         "https://www.googleapis.com/auth/drive",
     ]
     sa_info = dict(st.secrets["gcp_service_account"])
-creds = Credentials.from_service_account_info(sa_info, scopes=scopes)     #
+creds = Credentials.from_service_account_info(sa_info, scopes=scopes)
     return gspread.authorize(creds)
 
 # =========================

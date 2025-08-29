@@ -80,22 +80,14 @@ def read_all_as_dataframe():
 # =========================
 # Tiện ích thời gian & xuất file
 # =========================
-def local_dt_to_utc_iso(dt_local):
-    """Nhận datetime (TZ VN) → trả ISO UTC."""
-    if dt_local is None:
-        return ""
-    if dt_local.tzinfo is None:
-        dt_local = dt_local.replace(tzinfo=TZ)
-    return dt_local.astimezone(tz.UTC).replace(second=0, microsecond=0).isoformat()
-
-def utc_iso_to_vn_str(iso_str):
-    try:
-        if not iso_str:
-            return ""
-        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00")).astimezone(TZ)
-        return dt.strftime("%Y-%m-%d %H:%M")
-    except Exception:
-        return iso_str
+import io
+import json
+from datetime import datetime, timedelta
+from dateutil import tz         # hoặc: from zoneinfo import ZoneInfo
+import pandas as pd             # <-- cần có dòng này, đặt ở đầu file
+import streamlit as st
+import gspread
+from google.oauth2.service_account import Credentials
 
 def to_csv_bytes(df: pd.DataFrame) -> bytes:
     return df.to_csv(index=False).encode("utf-8-sig")

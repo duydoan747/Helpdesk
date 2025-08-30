@@ -2,6 +2,6 @@ streamlit
 pandas
 gspread
 google-auth
-openpyxl
-python-dateutil
 pytz
+python-dateutil
+openpyxl

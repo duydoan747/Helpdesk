@@ -1,102 +1,137 @@
-# -*- coding: utf-8 -*-
-"""
-IT Helpdesk → Google Sheets (Service Account via Streamlit Secrets)
-- Đọc SHEET_ID và khóa dịch vụ từ st.secrets (không cần file JSON cạnh app)
-- Có trường 'Nguyên nhân đầu vào' (trước 'Tình trạng')
-- Form nhập dùng date_input + time_input
-"""
+# app.py
+from __future__ import annotations
 
-from google.oauth2.service_account import Credentials
-import gspread
+import io
+import json
+from datetime import datetime, date, time, timezone
+from zoneinfo import ZoneInfo
+
+import pandas as pd
 import streamlit as st
+import gspread
+from google.oauth2.service_account import Credentials
+from gspread.exceptions import WorksheetNotFound
 
-def get_gspread_client_service():
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
-    ]
-    sa_info = dict(st.secrets["gcp_service_account"])
-    creds = Credentials.from_service_account_info(sa_info, scopes=scopes)
-    return gspread.authorize(creds)
 # =========================
 # Cấu hình chung
 # =========================
-st.set_page_config(page_title="IT Helpdesk → Google Sheets", page_icon="🧰", layout="wide")
+st.set_page_config(
+    page_title="IT Helpdesk → Google Sheets",
+    page_icon="🛠️",
+    layout="wide",
+)
+
 APP_TITLE = "IT Helpdesk → Google Sheets"
-SHEET_ID = st.secrets["SHEET_ID"]                     # <-- lấy từ secrets
-from dateutil import tz
-TZ = tz.gettz("Asia/Ho_Chi_Minh")
+VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
+
+# Lấy từ Secrets
+SHEET_ID: str = st.secrets["SHEET_ID"]
 SHEET_NAME = "Data"
 
-# Các cột cố định trên Sheet
+# Header cố định trên Sheet (thứ tự cột)
 COLUMNS = [
-    "Tên công ty", "ShĐ", "Nguyên nhân đầu vào", "Tình trạng", "Cách xử lý",
-    "Thời gian phát sinh (UTC ISO)", "Thời gian hoàn thành (UTC ISO)",
-    "KTV", "CreatedAt (UTC ISO)"
+    "Tên công ty",
+    "ShĐ",
+    "Nguyên nhân đầu vào",
+    "Tình trạng",
+    "Cách xử lý",
+    "Thời gian phát sinh (UTC ISO)",
+    "Thời gian hoàn thành (UTC ISO)",
+    "KTV",
+    "CreatedAt (UTC ISO)",
+    "SLA_gio",
 ]
 
-# =========================
-# Kết nối Google Sheets (Service Account từ secrets)
-# =========================
-from google.oauth2.service_account import Credentials
-import gspread
 
+# =========================
+# Kết nối Google Sheets
+# =========================
 def get_gspread_client_service():
+    """Authorize gspread bằng JSON gốc đặt trong secrets['gcp_service_account_json']"""
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive",
     ]
-    sa_info = dict(st.secrets["gcp_service_account"])     # đọc trực tiếp từ secrets
+    sa_info = json.loads(st.secrets["gcp_service_account_json"])
     creds = Credentials.from_service_account_info(sa_info, scopes=scopes)
     return gspread.authorize(creds)
 
-@st.cache_resource
+
+@st.cache_resource(show_spinner=False)
 def open_worksheet():
+    """Mở worksheet; nếu chưa có thì tạo và ghi header."""
     gc = get_gspread_client_service()
     sh = gc.open_by_key(SHEET_ID)
     try:
         ws = sh.worksheet(SHEET_NAME)
-    except gspread.WorksheetNotFound:
-        ws = sh.add_worksheet(title=SHEET_NAME, rows=2000, cols=len(COLUMNS) + 5)
-        ws.append_row(COLUMNS)  # Header
-    # Đảm bảo header đúng
-    header = ws.row_values(1)
-    if header != COLUMNS:
-        ws.update(f"A1:{chr(64+len(COLUMNS))}1", [COLUMNS])
+    except WorksheetNotFound:
+        ws = sh.add_worksheet(title=SHEET_NAME, rows=1000, cols=20)
+        ws.append_row(COLUMNS, value_input_option="RAW")
+        return ws
+
+    # Đảm bảo có header ở dòng 1
+    first_row = ws.row_values(1)
+    if not first_row:
+        ws.append_row(COLUMNS, value_input_option="RAW")
     return ws
 
-def append_ticket_row(row_values):
-    ws = open_worksheet()
-    ws.append_row(row_values, value_input_option="USER_ENTERED")
 
-def read_all_as_dataframe():
+@st.cache_data(show_spinner=False, ttl=60)
+def read_all_as_dataframe() -> pd.DataFrame:
+    """Đọc toàn bộ dữ liệu thành DataFrame; parse thời gian & tính SLA."""
     ws = open_worksheet()
     values = ws.get_all_values()
-    if not values or len(values) < 2:
+
+    if not values or len(values) == 1:  # chỉ có header hoặc rỗng
         return pd.DataFrame(columns=COLUMNS)
-    df = pd.DataFrame(values[1:], columns=values[0])  # bỏ header dòng 1
+
+    header = values[0]
+    rows = values[1:]
+    df = pd.DataFrame(rows, columns=header)
+
+    # Bổ sung cột thiếu (nếu header trên sheet chưa đủ)
+    for col in COLUMNS:
+        if col not in df.columns:
+            df[col] = ""
+
+    # Parse thời gian UTC
+    for col in ["Thời gian phát sinh (UTC ISO)", "Thời gian hoàn thành (UTC ISO)", "CreatedAt (UTC ISO)"]:
+        df[col] = pd.to_datetime(df[col], errors="coerce", utc=True)
+
+    # Tính SLA_gio nếu có đủ 2 mốc
+    has_both = df["Thời gian phát sinh (UTC ISO)"].notna() & df["Thời gian hoàn thành (UTC ISO)"].notna()
+    df.loc[has_both, "SLA_gio"] = (
+        (df.loc[has_both, "Thời gian hoàn thành (UTC ISO)"] - df.loc[has_both, "Thời gian phát sinh (UTC ISO)"])
+        .dt.total_seconds()
+        / 3600.0
+    )
+    df["SLA_gio"] = pd.to_numeric(df["SLA_gio"], errors="coerce")
+
+    # Thêm cột hiển thị theo giờ VN
+    df["Phát sinh (VN)"] = df["Thời gian phát sinh (UTC ISO)"].dt.tz_convert(VN_TZ)
+    df["Hoàn thành (VN)"] = df["Thời gian hoàn thành (UTC ISO)"].dt.tz_convert(VN_TZ)
+
+    # Sắp xếp mới nhất trước
+    df = df.sort_values(by=["Thời gian phát sinh (UTC ISO)"], ascending=False, na_position="last").reset_index(drop=True)
     return df
 
-# =========================
-# Tiện ích thời gian & xuất file
-# =========================
-import io
-import json
-from datetime import datetime, timedelta
-from dateutil import tz         # hoặc: from zoneinfo import ZoneInfo
-import pandas as pd             # <-- cần có dòng này, đặt ở đầu file
-import streamlit as st
-import gspread
-from google.oauth2.service_account import Credentials
 
 def to_csv_bytes(df: pd.DataFrame) -> bytes:
-    return df.to_csv(index=False).encode("utf-8-sig")
+    out = io.StringIO()
+    df.to_csv(out, index=False, encoding="utf-8")
+    return out.getvalue().encode("utf-8")
 
-def to_excel_bytes(df: pd.DataFrame) -> bytes:
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="BaoCao")
-    return output.getvalue()
+
+def local_to_utc_iso(d: date, t: time) -> str:
+    """Ghép ngày+giờ VN → UTC ISO string."""
+    dt_local = datetime(d.year, d.month, d.day, t.hour, t.minute, t.second, tzinfo=VN_TZ)
+    return dt_local.astimezone(timezone.utc).isoformat()
+
+
+def append_ticket(row: list[str]) -> None:
+    ws = open_worksheet()
+    ws.append_row(row, value_input_option="RAW")
+
 
 # =========================
 # UI
@@ -104,159 +139,127 @@ def to_excel_bytes(df: pd.DataFrame) -> bytes:
 st.title(APP_TITLE)
 st.caption("Lưu & báo cáo ticket trực tiếp trên Google Sheets (Service Account qua Secrets)")
 
-# ====== FORM NHẬP
 with st.expander("➕ Nhập ticket mới", expanded=True):
-    col1, col2 = st.columns(2)
+    c1, c2 = st.columns(2)
 
-    # Cột trái: thông tin chung
-    with col1:
-        ten_cty = st.text_input("Tên công ty *", "")
-        so_hd = st.text_input("ShĐ (Số HĐ/Số hồ sơ) *", "")
-        nguyen_nhan = st.text_input("Nguyên nhân đầu vào *", "")
-        tinh_trang = st.selectbox("Tình trạng *", ["Mới", "Đang xử lý", "Chờ KH phản hồi", "Hoàn thành"])
-        ktv = st.text_input("KTV phụ trách", "")
+    ten_cty = c1.text_input("Tên công ty *")
+    ngay_psinh = c2.date_input("Ngày phát sinh *", value=datetime.now(VN_TZ).date(), format="YYYY/MM/DD")
+    shd = c1.text_input("ShĐ (Số HĐ/Số hồ sơ) *")
+    gio_psinh = c2.time_input("Giờ phát sinh *", value=datetime.now(VN_TZ).time().replace(second=0), step=60)
 
-    # Cột phải: thời gian & mô tả
-    with col2:
-        now_vn = datetime.now(TZ).replace(second=0, microsecond=0)
+    nguyen_nhan = c1.text_input("Nguyên nhân đầu vào *")
+    cach_xl = c2.text_area("Cách xử lý * (mô tả ngắn gọn)")
 
-        # Phát sinh: tách Ngày + Giờ
-        ps_date = st.date_input("Ngày phát sinh *", value=now_vn.date(), key="ps_date")
-        ps_time = st.time_input("Giờ phát sinh *", value=now_vn.time(), step=900, key="ps_time")  # 15'
-        cach_xu_ly = st.text_area("Cách xử lý * (mô tả ngắn gọn)", height=120)
+    tinh_trang = c1.selectbox("Tình trạng *", ["Mới", "Đang xử lý", "Hoàn thành", "Tạm dừng"])
+    ktv = c2.text_input("KTV phụ trách")
 
-        # Hoàn thành (tuỳ chọn)
-        has_done = st.checkbox("Có thời gian hoàn thành?", value=False)
-        done_date = None
-        done_time = None
-        if has_done:
-            done_date = st.date_input("Ngày hoàn thành", value=now_vn.date(), key="done_date")
-            done_time = st.time_input("Giờ hoàn thành", value=now_vn.time(), step=900, key="done_time")
+    co_tg_hoanthanh = st.checkbox("Có thời gian hoàn thành?")
+    if co_tg_hoanthanh:
+        c3, c4 = st.columns(2)
+        ngay_done = c3.date_input("Ngày hoàn thành", value=datetime.now(VN_TZ).date(), format="YYYY/MM/DD")
+        gio_done = c4.time_input("Giờ hoàn thành", value=datetime.now(VN_TZ).time().replace(second=0), step=60)
+        tg_done_utc = local_to_utc_iso(ngay_done, gio_done)
+    else:
+        tg_done_utc = ""
 
-    # Nút lưu
-    b1, _ = st.columns([1,4])
-    if b1.button("Lưu vào Google Sheet", type="primary", use_container_width=True):
+    if st.button("Lưu vào Google Sheet", type="primary"):
         # Validate
-        missing = []
-        if not ten_cty.strip(): missing.append("Tên công ty")
-        if not so_hd.strip(): missing.append("ShĐ")
-        if not nguyen_nhan.strip(): missing.append("Nguyên nhân đầu vào")
-        if not tinh_trang.strip(): missing.append("Tình trạng")
-        if not cach_xu_ly.strip(): missing.append("Cách xử lý")
-        if not (ps_date and ps_time): missing.append("Thời gian phát sinh")
-        if tinh_trang == "Hoàn thành" and not (has_done and done_date and done_time):
-            missing.append("Thời gian hoàn thành (khi trạng thái = Hoàn thành)")
-
-        if missing:
-            st.error("Thiếu thông tin: " + ", ".join(missing))
+        required = [ten_cty, shd, nguyen_nhan, cach_xl, tinh_trang]
+        if any(not x.strip() for x in required):
+            st.error("Vui lòng điền đầy đủ các trường bắt buộc (*)")
         else:
-            # Gộp ngày+giờ thành datetime (múi giờ VN) rồi convert UTC ISO
-            def combine_to_iso(d, t):
-                if not d or not t:
-                    return ""
-                dt_local = datetime.combine(d, t).replace(tzinfo=TZ, second=0, microsecond=0)
-                return local_dt_to_utc_iso(dt_local)
-
-            tg_phat_sinh_iso = combine_to_iso(ps_date, ps_time)
-            tg_hoan_thanh_iso = combine_to_iso(done_date, done_time) if has_done else ""
-
             try:
+                tg_ps_utc = local_to_utc_iso(ngay_psinh, gio_psinh)
+                created_utc = datetime.now(timezone.utc).isoformat()
+
+                # SLA (giờ)
+                if tg_done_utc:
+                    start = datetime.fromisoformat(tg_ps_utc.replace("Z", "+00:00"))
+                    end = datetime.fromisoformat(tg_done_utc.replace("Z", "+00:00"))
+                    sla_gio = round((end - start).total_seconds() / 3600.0, 2)
+                else:
+                    sla_gio = ""
+
                 row = [
-                    ten_cty.strip(),
-                    so_hd.strip(),
-                    nguyen_nhan.strip(),
-                    tinh_trang.strip(),
-                    cach_xu_ly.strip(),
-                    tg_phat_sinh_iso,
-                    tg_hoan_thanh_iso,
-                    ktv.strip(),
-                    datetime.utcnow().replace(second=0, microsecond=0).isoformat()
+                    ten_cty,
+                    shd,
+                    nguyen_nhan,
+                    tinh_trang,
+                    cach_xl,
+                    tg_ps_utc,
+                    tg_done_utc,
+                    ktv,
+                    created_utc,
+                    sla_gio,
                 ]
-                append_ticket_row(row)
-                st.success("Đã lưu lên Google Sheet ✅")
+                append_ticket(row)
+                st.success("✅ Đã lưu ticket vào Google Sheet!")
+                st.balloons()
             except Exception as e:
-                st.error(f"Lỗi khi ghi Google Sheet: {e}")
+                st.error(f"❌ Lỗi khi ghi Google Sheet: {e}")
 
 st.divider()
-st.subheader("📊 Báo cáo & Lọc dữ liệu")
 
-with st.container():
-    c1, c2, c3, c4 = st.columns([1.2,1.2,1,1])
-    today = datetime.now(TZ).date()
-    from_dt = c1.date_input("Từ ngày", value=today - timedelta(days=7))
-    to_dt = c2.date_input("Đến ngày", value=today + timedelta(days=1))
-    ten_cty_filter = c3.text_input("Lọc theo tên Cty", "")
-    ktv_filter = c4.text_input("Lọc theo KTV", "")
+# =========================
+# Báo cáo & Lọc dữ liệu
+# =========================
+st.header("📊 Báo cáo & Lọc dữ liệu")
 
+c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
+
+today_vn = datetime.now(VN_TZ).date()
+from_day = c1.date_input("Từ ngày", value=today_vn.replace(day=max(1, today_vn.day - 7)), format="YYYY/MM/DD")
+to_day = c2.date_input("Đến ngày", value=today_vn, format="YYYY/MM/DD")
+flt_cty = c3.text_input("Lọc theo tên Cty")
+flt_ktv = c4.text_input("Lọc theo KTV")
+
+try:
     df_raw = read_all_as_dataframe()
-
     if df_raw.empty:
-        st.info("Chưa có dữ liệu trên Google Sheet.")
+        st.info("Chưa có dữ liệu.")
     else:
-        # Lọc theo thời gian phát sinh (UTC ISO)
-        def in_range(iso_str):
-            try:
-                if not iso_str:
-                    return False
-                dt_utc = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
-                start = datetime(from_dt.year, from_dt.month, from_dt.day, 0, 0, tzinfo=TZ).astimezone(tz.UTC)
-                end = datetime(to_dt.year, to_dt.month, to_dt.day, 0, 0, tzinfo=TZ).astimezone(tz.UTC)
-                return start <= dt_utc < end
-            except Exception:
-                return False
+        # Lọc theo ngày (dựa trên thời gian *VN*)
+        m_start = datetime(from_day.year, from_day.month, from_day.day, 0, 0, tzinfo=VN_TZ)
+        m_end = datetime(to_day.year, to_day.month, to_day.day, 23, 59, 59, tzinfo=VN_TZ)
 
-        mask = df_raw["Thời gian phát sinh (UTC ISO)"].apply(in_range)
-        if ten_cty_filter.strip():
-            mask &= df_raw["Tên công ty"].str.contains(ten_cty_filter.strip(), case=False, na=False)
-        if ktv_filter.strip():
-            mask &= df_raw["KTV"].str.contains(ktv_filter.strip(), case=False, na=False)
+        df = df_raw.copy()
+        in_range = df["Phát sinh (VN)"].between(m_start, m_end, inclusive="both")
+        df = df[in_range]
 
-        df = df_raw[mask].copy()
+        if flt_cty.strip():
+            df = df[df["Tên công ty"].str.contains(flt_cty.strip(), case=False, na=False)]
+        if flt_ktv.strip():
+            df = df[df["KTV"].str.contains(flt_ktv.strip(), case=False, na=False)]
 
-        # Tính SLA (giờ)
-        def calc_sla(row):
-            try:
-                s = row["Thời gian phát sinh (UTC ISO)"]
-                e = row["Thời gian hoàn thành (UTC ISO)"]
-                if s and e:
-                    start = datetime.fromisoformat(s.replace("Z", "+00:00"))
-                    end = datetime.fromisoformat(e.replace("Z", "+00:00"))
-                    return round((end - start).total_seconds()/3600.0, 2)
-            except:
-                return None
-            return None
-
-        df["SLA_gio"] = df.apply(calc_sla, axis=1)
-
-        # Hiển thị cột thời gian theo VN
-        df["Phát sinh"] = df["Thời gian phát sinh (UTC ISO)"].apply(utc_iso_to_vn_str)
-        df["Hoàn thành"] = df["Thời gian hoàn thành (UTC ISO)"].apply(utc_iso_to_vn_str)
-
-        # Cột hiển thị
-        view_cols = [
-            "Tên công ty","ShĐ","Nguyên nhân đầu vào","Tình trạng",
-            "Cách xử lý","Phát sinh","Hoàn thành","KTV","SLA_gio"
+        # Hiển thị gọn gàng
+        show_cols = [
+            "Tên công ty",
+            "ShĐ",
+            "Nguyên nhân đầu vào",
+            "Tình trạng",
+            "Cách xử lý",
+            "Phát sinh (VN)",
+            "Hoàn thành (VN)",
+            "KTV",
+            "SLA_gio",
         ]
-        df = df.sort_values(by="Phát sinh", ascending=False, na_position="last")
+        st.dataframe(
+            df[show_cols].assign(
+                **{
+                    "Phát sinh (VN)": df["Phát sinh (VN)"].dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    "Hoàn thành (VN)": df["Hoàn thành (VN)"].dt.strftime("%Y-%m-%d %H:%M:%S"),
+                }
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
 
-        st.dataframe(df[view_cols], use_container_width=True, hide_index=True)
-        st.caption(f"🧮 Tổng ticket: {len(df)} | Đã tính SLA (giờ) cho {df['SLA_gio'].notna().sum()} ticket hoàn thành")
-
-        # Xuất file
-        colx1, colx2 = st.columns(2)
-        with colx1:
-            st.download_button(
-                "⬇️ Xuất CSV (UTF-8)",
-                data=to_csv_bytes(df[view_cols]),
-                file_name="baocao_helpdesk.csv",
-                mime="text/csv"
-            )
-        with colx2:
-            st.download_button(
-                "⬇️ Xuất Excel",
-                data=to_excel_bytes(df[view_cols]),
-                file_name="baocao_helpdesk.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-
-st.caption("💡 Mẹo: Muốn team cùng nhập, chạy `streamlit run app.py --server.address 0.0.0.0` rồi share URL LAN.")
+        # Tải CSV
+        st.download_button(
+            "⬇️ Tải CSV đã lọc",
+            data=to_csv_bytes(df[show_cols]),
+            file_name=f"helpdesk_{from_day}_{to_day}.csv",
+            mime="text/csv",
+        )
+except Exception as e:
+    st.error(f"Đã gặp lỗi khi tải dữ liệu: {e}")

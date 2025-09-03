@@ -16,12 +16,12 @@ from gspread.exceptions import WorksheetNotFound
 # Cấu hình chung
 # =========================
 st.set_page_config(
-    page_title="IT Helpdesk → Google Sheets",
+    page_title="IT Helpdesk → SGDAVH",
     page_icon="🛠️",
     layout="wide",
 )
 
-APP_TITLE = "IT Helpdesk → Google Sheets"
+APP_TITLE = "IT Helpdesk → SGDAVH"
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
 # Lấy từ Secrets

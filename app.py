@@ -46,29 +46,39 @@ COLUMNS = [
 # =========================
 # Kết nối Google Sheets
 # =========================
+# ==== imports ====
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
+from gspread.exceptions import WorksheetNotFound
+# ... các import khác (pandas, datetime, ...)
 
-SHEET_ID = "19ZuVHJfkbW57oiMVYYB127lEuEqk6EfMX1ZT1aPicPc"
+# ==== constants ====
+SHEET_ID = st.secrets["SHEET_ID"]          # bạn có thể để trong secrets
+SHEET_NAME = "Data"
+COLUMNS = ["Tên công ty","SĐT","Nguyên nhân đầu vào","Tình trạng","Cách xử lý",
+           "Thời gian phát sinh (UTC ISO)","Thời gian hoàn thành (UTC ISO)",
+           "KTV","CreatedAt (UTC ISO)","SLA_giờ"]
 
-# Lấy dict từ secrets.toml
-sa_info = st.secrets["gcp_service_account"]
+# ==== auth ====
+def get_gspread_client_service():
+    sa_info = st.secrets["gcp_service_account"]
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    creds = Credentials.from_service_account_info(sa_info, scopes=scopes)
+    return gspread.authorize(creds)
 
-scopes = ["https://www.googleapis.com/auth/spreadsheets",
-          "https://www.googleapis.com/auth/drive"]
-creds = Credentials.from_service_account_info(sa_info, scopes=scopes)
-gc = gspread.authorize(creds)
-
-sh = gc.open_by_key(SHEET_ID)
-ws = sh.sheet1
-
+# ==== open sheet ====
 gc = get_gspread_client_service()
 sh = gc.open_by_key(SHEET_ID)
 try:
     ws = sh.worksheet(SHEET_NAME)
 except WorksheetNotFound:
     ws = sh.add_worksheet(title=SHEET_NAME, rows=1000, cols=len(COLUMNS))
+    ws.append_row(COLUMNS)
+
 
 
 @st.cache_resource(show_spinner=False)

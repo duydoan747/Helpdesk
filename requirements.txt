@@ -1,7 +1,4 @@
 streamlit
-pandas
 gspread
 google-auth
-pytz
-python-dateutil
-openpyxl
+pandas

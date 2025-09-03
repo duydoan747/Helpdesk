@@ -46,15 +46,29 @@ COLUMNS = [
 # =========================
 # Kết nối Google Sheets
 # =========================
-def get_gspread_client_service():
-    """Authorize gspread bằng JSON gốc đặt trong secrets['gcp_service_account_json']"""
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
-    ]
-    sa_info = json.loads(st.secrets["gcp_service_account_json"])
-    creds = Credentials.from_service_account_info(sa_info, scopes=scopes)
-    return gspread.authorize(creds)
+import streamlit as st
+import gspread
+from google.oauth2.service_account import Credentials
+
+SHEET_ID = "19ZuVHJfkbW57oiMVYYB127lEuEqk6EfMX1ZT1aPicPc"
+
+# Lấy dict từ secrets.toml
+sa_info = st.secrets["gcp_service_account"]
+
+scopes = ["https://www.googleapis.com/auth/spreadsheets",
+          "https://www.googleapis.com/auth/drive"]
+creds = Credentials.from_service_account_info(sa_info, scopes=scopes)
+gc = gspread.authorize(creds)
+
+sh = gc.open_by_key(SHEET_ID)
+ws = sh.sheet1
+
+gc = get_gspread_client_service()
+sh = gc.open_by_key(SHEET_ID)
+try:
+    ws = sh.worksheet(SHEET_NAME)
+except WorksheetNotFound:
+    ws = sh.add_worksheet(title=SHEET_NAME, rows=1000, cols=len(COLUMNS))
 
 
 @st.cache_resource(show_spinner=False)

@@ -30,37 +30,6 @@ try:
     st.sidebar.write("🔍 Debug user_info:", user_info)
 except Exception as e:
     st.sidebar.error(f"Lỗi khi lấy user_info: {e}")
-# =========================
-# PHÂN QUYỀN THEO EMAIL
-# =========================
-RAW_ALLOWED = {
-    "duydv3@fpt.com",
-    "duydoan747@gmail.com"
-    "congnv17@fpt.com",
-    "vuln3@fpt.com",
-    "vinhpt14@fpt.com",
-    "phubq2@fpt.com",
-    "phuongnam.kietnp@fpt.net",
-}
-ALLOWED_EMAILS = {e.strip().lower() for e in RAW_ALLOWED}
-
-# lấy email user từ Streamlit Cloud (cần bật Viewer authentication)
-user = getattr(st, "experimental_user", None)
-email = getattr(user, "email", None)
-email_norm = (email or "").strip().lower()
-
-# luôn hiển thị email hiện tại để dễ debug
-st.sidebar.info(f"👤 Email đăng nhập hiện tại: {email_norm or 'N/A'}")
-
-if not email_norm:
-    st.error("⛔ Chưa nhận được email đăng nhập từ Streamlit Cloud.")
-    st.caption("👉 Hãy bật Viewer authentication trong Settings → Sharing của app, sau đó đăng nhập lại bằng Google.")
-    st.stop()
-
-if email_norm not in ALLOWED_EMAILS:
-    st.error("⛔ Bạn không có quyền truy cập ứng dụng này.")
-    st.caption(f"Email hiện tại: {email_norm}")
-    st.info("Nếu đúng email công ty mà vẫn bị chặn, hãy kiểm tra allowlist trong code hoặc Settings → Sharing.")
     st.stop()
 
 # =========================

@@ -30,6 +30,7 @@ VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 # =========================
 RAW_ALLOWED = {
     "duydv3@fpt.com",
+    "duydoan747@gmail.com"
     "congnv17@fpt.com",
     "vuln3@fpt.com",
     "vinhpt14@fpt.com",

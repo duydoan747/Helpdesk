@@ -12,12 +12,6 @@ import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 from gspread.exceptions import WorksheetNotFound
-# Debug user info từ Streamlit Cloud
-try:
-    user_info = st.experimental_user  # chỉ hoạt động khi Viewer authentication bật
-    st.sidebar.write("🔍 Debug user_info:", user_info)
-except Exception as e:
-    st.sidebar.error(f"Lỗi khi lấy user_info: {e}")
 
 # =========================
 # Cấu hình chung
@@ -30,7 +24,12 @@ st.set_page_config(
 
 APP_TITLE = "IT Helpdesk → SGDAVH"
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
-
+# --- Debug user info (có thể để sau set_page_config) ---
+try:
+    user_info = getattr(st, "experimental_user", None)
+    st.sidebar.write("🔍 Debug user_info:", user_info)
+except Exception as e:
+    st.sidebar.error(f"Lỗi khi lấy user_info: {e}")
 # =========================
 # PHÂN QUYỀN THEO EMAIL
 # =========================

@@ -25,7 +25,33 @@ st.set_page_config(
 APP_TITLE = "IT Helpdesk → SGDAVH"
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
-# Lấy từ Secrets
+# =========================
+# PHÂN QUYỀN THEO EMAIL
+# =========================
+ALLOWED_EMAILS = {
+    "duydv3@fpt.com",
+    "congnv17@fpt.com",
+    "vuln3@fpt.com",
+    "vinhpt14@fpt.com",
+    "phubq2@fpt.com",
+    "phuongnam.kietnp@fpt.net",
+}
+# Lấy user từ Streamlit Cloud (cần bật Viewer authentication)
+user = getattr(st, "experimental_user", None)
+email = getattr(user, "email", None)
+email_lc = (email or "").lower()
+
+if email_lc not in ALLOWED_EMAILS:
+    st.error("⛔ Bạn không có quyền truy cập ứng dụng này.")
+    st.caption(
+        "Nếu bạn đã có trong danh sách cấp quyền, hãy đăng nhập đúng email công ty. "
+        f"Email hiện tại: {email or 'N/A'}"
+    )
+    st.stop()
+
+# =========================
+# Kết nối & cấu hình Sheet
+# =========================
 SHEET_ID: str = st.secrets["SHEET_ID"]
 SHEET_NAME = "Data"
 
@@ -42,6 +68,7 @@ COLUMNS = [
     "Thời gian hoàn thành (UTC ISO)",
     "KTV",
     "CreatedAt (UTC ISO)",
+    "CreatedBy",              # 👈 lưu email người tạo ticket
     "SLA_gio",
 ]
 
@@ -260,6 +287,7 @@ with st.expander("➕ Nhập ticket mới", expanded=True):
                     end_utc_iso,           # Thời gian hoàn thành (UTC ISO)
                     ktv,                   # KTV
                     created_utc,           # CreatedAt (UTC ISO)
+                    email_lc,              # CreatedBy (email người tạo)
                     sla_gio,               # SLA_gio
                 ]
                 append_ticket(row)

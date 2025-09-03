@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import io
-from datetime import datetime, date, time, timezone
+import time, random
+from functools import wraps
+from datetime import datetime, date, time as dtime, timezone
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -30,27 +32,48 @@ SHEET_NAME = "Data"
 # Header cố định trên Sheet (thứ tự cột)
 COLUMNS = [
     "Tên công ty",
-    "SHD",                                  # đã đổi từ ShD → SHD
+    "SHD",
     "Nguyên nhân đầu vào",
-    "TT User",                              # đã bổ sung
+    "TT User",
     "Tình trạng",
+    "End ticket",  # NEW
     "Cách xử lý",
     "Thời gian phát sinh (UTC ISO)",
     "Thời gian hoàn thành (UTC ISO)",
     "KTV",
     "CreatedAt (UTC ISO)",
-    "SLA_gio",                              # dùng _gio (không dấu) cho nhất quán
+    "SLA_gio",
 ]
+
+# =========================
+# Retry/Backoff utilities
+# =========================
+def retry(max_attempts=5, base=0.5, cap=8.0):
+    """Exponential backoff cho các call tới Google API."""
+    def deco(fn):
+        @wraps(fn)
+        def inner(*args, **kwargs):
+            delay = base
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    return fn(*args, **kwargs)
+                except Exception as e:
+                    if attempt == max_attempts:
+                        raise
+                    time.sleep(delay + random.random() * 0.2)
+                    delay = min(delay * 2, cap)
+        return inner
+    return deco
 
 # =========================
 # Kết nối Google Sheets
 # =========================
 def get_gspread_client_service():
-    """Authorize gspread dùng dict trong secrets['gcp_service_account']"""
+    """Authorize gspread dùng dict trong secrets['gcp_service_account'] với scope tối thiểu."""
     sa_info = st.secrets["gcp_service_account"]
     scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
+        "https://www.googleapis.com/auth/spreadsheets",   # ghi/đọc sheet
+        "https://www.googleapis.com/auth/drive.file",     # chỉ các file được share/được app tạo
     ]
     creds = Credentials.from_service_account_info(sa_info, scopes=scopes)
     return gspread.authorize(creds)
@@ -59,7 +82,7 @@ def _ensure_header(ws) -> None:
     """Đảm bảo hàng 1 là header đúng như COLUMNS."""
     header = ws.row_values(1)
     if header != COLUMNS:
-        ws.update("A1", [COLUMNS])  # ghi lại toàn bộ header một lần
+        ws.update("A1", [COLUMNS])
 
 @st.cache_resource(show_spinner=False)
 def open_worksheet():
@@ -72,15 +95,40 @@ def open_worksheet():
         ws = sh.add_worksheet(title=SHEET_NAME, rows=1000, cols=len(COLUMNS))
         ws.update("A1", [COLUMNS])
         return ws
-
     _ensure_header(ws)
     return ws
+
+def _open_or_create_logs(sh):
+    try:
+        return sh.worksheet("Logs")
+    except WorksheetNotFound:
+        wslog = sh.add_worksheet("Logs", rows=1000, cols=3)
+        wslog.append_row(["UTC", "Action", "Message"])
+        return wslog
+
+def log_error(action: str, msg: str):
+    """Ghi lỗi nhẹ nhàng vào sheet Logs (im lặng khi thất bại để tránh vòng lặp)."""
+    try:
+        gc = get_gspread_client_service()
+        sh = gc.open_by_key(SHEET_ID)
+        wslog = _open_or_create_logs(sh)
+        wslog.append_row([datetime.utcnow().isoformat(), action, str(msg)])
+    except Exception:
+        pass
+
+@retry()
+def _safe_append_row(ws, row):
+    ws.append_row(row, value_input_option="RAW")
+
+@retry()
+def _safe_get_all_values(ws):
+    return ws.get_all_values()
 
 @st.cache_data(show_spinner=False, ttl=60)
 def read_all_as_dataframe() -> pd.DataFrame:
     """Đọc toàn bộ dữ liệu thành DataFrame; parse thời gian & tính SLA."""
     ws = open_worksheet()
-    values = ws.get_all_values()
+    values = _safe_get_all_values(ws)
 
     if not values or len(values) == 1:  # chỉ có header hoặc rỗng
         return pd.DataFrame(columns=COLUMNS)
@@ -119,14 +167,14 @@ def to_csv_bytes(df: pd.DataFrame) -> bytes:
     df.to_csv(out, index=False, encoding="utf-8")
     return out.getvalue().encode("utf-8")
 
-def local_to_utc_iso(d: date, t: time) -> str:
+def local_to_utc_iso(d: date, t: dtime) -> str:
     """Ghép ngày+giờ VN → UTC ISO string."""
     dt_local = datetime(d.year, d.month, d.day, t.hour, t.minute, t.second, tzinfo=VN_TZ)
     return dt_local.astimezone(timezone.utc).isoformat()
 
 def append_ticket(row: list[str]) -> None:
     ws = open_worksheet()
-    ws.append_row(row, value_input_option="RAW")
+    _safe_append_row(ws, row)
 
 # =========================
 # UI
@@ -137,18 +185,26 @@ st.caption("Lưu & báo cáo ticket trực tiếp trên Google Sheets (Service A
 with st.expander("➕ Nhập ticket mới", expanded=True):
     c1, c2 = st.columns(2)
 
-    ten_cty = c1.text_input("Tên công ty *")
+    ten_cty = c1.text_input("Tên công ty *").strip()
     ngay_psinh = c2.date_input("Ngày phát sinh *", value=datetime.now(VN_TZ).date(), format="YYYY/MM/DD")
-    shd = c1.text_input("SHD (Số HĐ/Số hồ sơ) *")                # đổi label
+    shd = c1.text_input("SHD (Số HĐ/Số hồ sơ) *").strip()
     gio_psinh = c2.time_input("Giờ phát sinh *", value=datetime.now(VN_TZ).time().replace(second=0), step=60)
 
-    nguyen_nhan = c1.text_input("Nguyên nhân đầu vào *")
-    tt_user = c2.text_input("TT User")                           # field mới
+    nguyen_nhan = c1.text_input("Nguyên nhân đầu vào *").strip()
+    tt_user = c2.text_input("TT User").strip()
 
-    cach_xl = c1.text_area("Cách xử lý * (mô tả ngắn gọn)")
+    cach_xl = c1.text_area("Cách xử lý * (mô tả ngắn gọn)").strip()
 
     tinh_trang = c2.selectbox("Tình trạng *", ["Mới", "Đang xử lý", "Hoàn thành", "Tạm dừng"])
-    ktv = c1.text_input("KTV phụ trách")
+
+    # NEW: End ticket
+    end_ticket = c1.selectbox(
+        "End ticket",
+        ["Remote", "Onsite", "Tạo Checklist cho chi nhánh"],
+        index=0,
+    )
+
+    ktv = c2.text_input("KTV phụ trách").strip()
 
     co_tg_hoanthanh = st.checkbox("Có thời gian hoàn thành?")
     if co_tg_hoanthanh:
@@ -162,7 +218,7 @@ with st.expander("➕ Nhập ticket mới", expanded=True):
     if st.button("Lưu vào Google Sheet", type="primary"):
         # Validate
         required = [ten_cty, shd, nguyen_nhan, cach_xl, tinh_trang]
-        if any(not x.strip() for x in required):
+        if any(not x for x in required):
             st.error("Vui lòng điền đầy đủ các trường bắt buộc (*)")
         else:
             try:
@@ -184,6 +240,7 @@ with st.expander("➕ Nhập ticket mới", expanded=True):
                     nguyen_nhan,               # "Nguyên nhân đầu vào"
                     tt_user,                   # "TT User"
                     tinh_trang,                # "Tình trạng"
+                    end_ticket,                # "End ticket" (NEW)
                     cach_xl,                   # "Cách xử lý"
                     tg_ps_utc,                 # "Thời gian phát sinh (UTC ISO)"
                     tg_done_utc,               # "Thời gian hoàn thành (UTC ISO)"
@@ -196,6 +253,7 @@ with st.expander("➕ Nhập ticket mới", expanded=True):
                 st.success("✅ Đã lưu ticket vào Google Sheet!")
                 st.balloons()
             except Exception as e:
+                log_error("APPEND", e)
                 st.error(f"❌ Lỗi khi ghi Google Sheet: {e}")
 
 st.divider()
@@ -207,7 +265,7 @@ st.header("📊 Báo cáo & Lọc dữ liệu")
 
 c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
 today_vn = datetime.now(VN_TZ).date()
-from_day = c1.date_input("Từ ngày", value=max(today_vn.replace(day=1), today_vn), format="YYYY/MM/DD")
+from_day = c1.date_input("Từ ngày", value=today_vn, format="YYYY/MM/DD")
 to_day = c2.date_input("Đến ngày", value=today_vn, format="YYYY/MM/DD")
 flt_cty = c3.text_input("Lọc theo tên Cty")
 flt_ktv = c4.text_input("Lọc theo KTV")
@@ -237,6 +295,7 @@ try:
             "Nguyên nhân đầu vào",
             "TT User",
             "Tình trạng",
+            "End ticket",      # NEW
             "Cách xử lý",
             "Phát sinh (VN)",
             "Hoàn thành (VN)",
@@ -252,7 +311,6 @@ try:
 
         st.dataframe(df[cols_view] if cols_view else df, use_container_width=True, hide_index=True)
 
-        # Tải CSV
         st.download_button(
             "⬇️ Tải CSV đã lọc",
             data=to_csv_bytes(df[cols_view] if cols_view else df),
@@ -260,4 +318,5 @@ try:
             mime="text/csv",
         )
 except Exception as e:
+    log_error("REPORT_LOAD", e)
     st.error(f"Đã gặp lỗi khi tải dữ liệu: {e}")

@@ -1,4 +1,14 @@
-streamlit
-gspread
-google-auth
-pandas
+# requirements.txt
+
+# Framework chính
+streamlit>=1.36,<1.40
+
+# Làm việc với Google Sheets
+gspread>=6.0.0,<7
+google-auth>=2.29.0,<3
+
+# Xử lý dữ liệu
+pandas>=2.2.0,<3
+
+# Timezone support (Python 3.9+ có sẵn zoneinfo, nhưng thêm dateutil cho an toàn)
+python-dateutil>=2.8.2,<3

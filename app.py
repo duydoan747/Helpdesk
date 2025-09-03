@@ -28,7 +28,10 @@ VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 # =========================
 # PHÂN QUYỀN THEO EMAIL
 # =========================
-ALLOWED_EMAILS = {
+# =========================
+# PHÂN QUYỀN THEO EMAIL
+# =========================
+RAW_ALLOWED = {
     "duydv3@fpt.com",
     "congnv17@fpt.com",
     "vuln3@fpt.com",
@@ -36,18 +39,28 @@ ALLOWED_EMAILS = {
     "phubq2@fpt.com",
     "phuongnam.kietnp@fpt.net",
 }
-# Lấy user từ Streamlit Cloud (cần bật Viewer authentication)
+# chuẩn hóa để tránh lỗi chữ hoa/khoảng trắng
+ALLOWED_EMAILS = {e.strip().lower() for e in RAW_ALLOWED}
+
+# lấy email người dùng (chỉ có khi bật Viewer authentication trên Streamlit Cloud)
 user = getattr(st, "experimental_user", None)
 email = getattr(user, "email", None)
-email_lc = (email or "").lower()
+email_norm = (email or "").strip().lower()
 
-if email_lc not in ALLOWED_EMAILS:
-    st.error("⛔ Bạn không có quyền truy cập ứng dụng này.")
+if not email_norm:
+    st.error("⛔ Chưa nhận được email đăng nhập.")
     st.caption(
-        "Nếu bạn đã có trong danh sách cấp quyền, hãy đăng nhập đúng email công ty. "
-        f"Email hiện tại: {email or 'N/A'}"
+        "Có thể bạn chưa bật Viewer authentication trên Streamlit Cloud,"
+        " hoặc chưa đăng nhập. Hãy bật Authentication và đăng nhập lại."
     )
     st.stop()
+
+if email_norm not in ALLOWED_EMAILS:
+    st.error("⛔ Bạn không có quyền truy cập ứng dụng này.")
+    st.caption(f"Email hiện tại: {email_norm}")
+    st.info("Nếu đây là nhầm lẫn, hãy thêm email của bạn vào allowlist trong Cloud hoặc trong code.")
+    st.stop()
+
 
 # =========================
 # Kết nối & cấu hình Sheet

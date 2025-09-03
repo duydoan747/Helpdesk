@@ -12,6 +12,13 @@ import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 from gspread.exceptions import WorksheetNotFound
+# Debug user info từ Streamlit Cloud
+try:
+    user_info = st.experimental_user  # chỉ hoạt động khi Viewer authentication bật
+    st.sidebar.write("🔍 Debug user_info:", user_info)
+except Exception as e:
+    st.sidebar.error(f"Lỗi khi lấy user_info: {e}")
+
 
 # =========================
 # Cấu hình chung

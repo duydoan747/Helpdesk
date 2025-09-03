@@ -187,7 +187,7 @@ st.title(APP_TITLE)
 st.caption("Lưu & báo cáo ticket trực tiếp trên Google Sheets (Service Account qua Secrets)")
 
 with st.expander("➕ Nhập ticket mới", expanded=True):
-    # Dùng FORM để submit & auto-clear
+    # Dùng FORM để submit & auto-clear sau khi lưu
     with st.form("ticket_form", clear_on_submit=True):
         c1, c2 = st.columns(2)
 
@@ -211,13 +211,11 @@ with st.expander("➕ Nhập ticket mới", expanded=True):
 
         ktv = c2.text_input("KTV phụ trách")
 
-        co_tg_hoanthanh = st.checkbox("Có thời gian hoàn thành?")
-        if co_tg_hoanthanh:
-            c3, c4 = st.columns(2)
-            ngay_done = c3.date_input("Ngày hoàn thành", value=datetime.now(VN_TZ).date(), format="YYYY/MM/DD")
-            gio_done = c4.time_input("Giờ hoàn thành", value=now_vn_rounded().time(), step=60)
-        else:
-            ngay_done, gio_done = None, None
+        # Luôn hiển thị 2 ô hoàn thành; công tắc quyết định có tính SLA/ghi thời gian hoàn thành hay không
+        has_done = st.toggle("Có thời gian hoàn thành?", value=True)
+        c3, c4 = st.columns(2)
+        ngay_done = c3.date_input("Ngày hoàn thành", value=datetime.now(VN_TZ).date(), format="YYYY/MM/DD")
+        gio_done  = c4.time_input("Giờ hoàn thành", value=now_vn_rounded().time(), step=60)
 
         submitted = st.form_submit_button("Lưu vào Google Sheet", type="primary")
 
@@ -234,7 +232,8 @@ with st.expander("➕ Nhập ticket mới", expanded=True):
                     ngay_psinh.year, ngay_psinh.month, ngay_psinh.day,
                     gio_psinh.hour, gio_psinh.minute, tzinfo=VN_TZ
                 )
-                if ngay_done and gio_done:
+
+                if has_done:
                     end_local = datetime(
                         ngay_done.year, ngay_done.month, ngay_done.day,
                         gio_done.hour, gio_done.minute, tzinfo=VN_TZ

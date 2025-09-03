@@ -31,8 +31,9 @@ SHEET_NAME = "Data"
 # Header cố định trên Sheet (thứ tự cột)
 COLUMNS = [
     "Tên công ty",
-    "ShĐ",
+    "SHĐ",
     "Nguyên nhân đầu vào",
+    "TT User",
     "Tình trạng",
     "Cách xử lý",
     "Thời gian phát sinh (UTC ISO)",

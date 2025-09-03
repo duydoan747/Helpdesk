@@ -24,14 +24,6 @@ st.set_page_config(
 
 APP_TITLE = "IT Helpdesk → SGDAVH"
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
-# --- Debug user info (có thể để sau set_page_config) ---
-try:
-    user_info = getattr(st, "experimental_user", None)
-    st.sidebar.write("🔍 Debug user_info:", user_info)
-except Exception as e:
-    st.sidebar.error(f"Lỗi khi lấy user_info: {e}")
-    st.stop()
-
 # =========================
 # Kết nối Google Sheets
 # =========================

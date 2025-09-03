@@ -57,7 +57,7 @@ def retry(max_attempts=5, base=0.5, cap=8.0):
             for attempt in range(1, max_attempts + 1):
                 try:
                     return fn(*args, **kwargs)
-                except Exception as e:
+                except Exception:
                     if attempt == max_attempts:
                         raise
                     time.sleep(delay + random.random() * 0.2)
@@ -214,13 +214,18 @@ with st.expander("➕ Nhập ticket mới", expanded=True):
 
     cach_xl = c1.text_area("Cách xử lý * (mô tả ngắn gọn)", key="cach_xl")
 
-    tinh_trang = c2.selectbox("Tình trạng *",
-                              ["Mới", "Đang xử lý", "Hoàn thành", "Tạm dừng"],
-                              key="tinh_trang")
+    tinh_trang = c2.selectbox(
+        "Tình trạng *",
+        ["Mới", "Đang xử lý", "Hoàn thành", "Tạm dừng"],
+        key="tinh_trang",
+    )
 
-    end_ticket = c1.selectbox("End ticket",
-                              ["Remote", "Onsite", "Tạo Checklist cho chi nhánh"],
-                              index=0, key="end_ticket")
+    end_ticket = c1.selectbox(
+        "End ticket",
+        ["Remote", "Onsite", "Tạo Checklist cho chi nhánh"],
+        index=0,
+        key="end_ticket",
+    )
 
     ktv = c2.text_input("KTV phụ trách", key="ktv")
 
@@ -241,9 +246,13 @@ with st.expander("➕ Nhập ticket mới", expanded=True):
 
     # ===== Lưu =====
     if st.button("Lưu vào Google Sheet", type="primary"):
-        required = [st.session_state["ten_cty"], st.session_state["shd"],
-                    st.session_state["nguyen_nhan"], st.session_state["cach_xl"],
-                    st.session_state["tinh_trang"]]
+        required = [
+            st.session_state["ten_cty"],
+            st.session_state["shd"],
+            st.session_state["nguyen_nhan"],
+            st.session_state["cach_xl"],
+            st.session_state["tinh_trang"],
+        ]
         if any(not (x or "").strip() for x in required):
             st.error("Vui lòng điền đầy đủ các trường bắt buộc (*)")
         else:
@@ -278,16 +287,14 @@ with st.expander("➕ Nhập ticket mới", expanded=True):
                 st.success("✅ Đã lưu ticket vào Google Sheet!")
                 st.balloons()
 
-                # ===== Reset form về TRẮNG để nhập ticket mới =====
-                for field in ["ten_cty", "shd", "nguyen_nhan", "tt_user", "cach_xl", "ktv"]:
-                    st.session_state[field] = ""
-                st.session_state["tinh_trang"] = "Mới"
-                st.session_state["end_ticket"] = "Remote"
-                st.session_state["co_tg_hoanthanh"] = False
-                st.session_state["ngay_psinh"] = datetime.now(VN_TZ).date()
-                st.session_state["gio_psinh"] = _now_vn_rounded().time()
-                st.session_state["ngay_done"] = datetime.now(VN_TZ).date()
-                st.session_state["gio_done"] = _now_vn_rounded().time()
+                # ===== Reset form: xóa keys rồi RERUN để tránh lỗi set value sau khi widget đã tạo =====
+                for key in [
+                    "ten_cty", "shd", "nguyen_nhan", "tt_user", "cach_xl", "ktv",
+                    "tinh_trang", "end_ticket", "co_tg_hoanthanh",
+                    "ngay_psinh", "gio_psinh", "ngay_done", "gio_done",
+                ]:
+                    st.session_state.pop(key, None)
+                st.rerun()
 
             except Exception as e:
                 log_error("APPEND", e)

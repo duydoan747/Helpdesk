@@ -36,7 +36,7 @@ COLUMNS = [
     "Nguyên nhân đầu vào",
     "TT User",
     "Tình trạng",
-    "End ticket",  # NEW
+    "End ticket",
     "Cách xử lý",
     "Thời gian phát sinh (UTC ISO)",
     "Thời gian hoàn thành (UTC ISO)",
@@ -188,7 +188,7 @@ with st.expander("➕ Nhập ticket mới", expanded=True):
         n = datetime.now(VN_TZ)
         return n.replace(second=0, microsecond=0)
 
-    # ===== Defaults in session_state (giữ nguyên sau khi rerun) =====
+    # ===== Defaults in session_state (giữ sau rerun) =====
     if "ngay_psinh" not in st.session_state:
         st.session_state["ngay_psinh"] = datetime.now(VN_TZ).date()
     if "gio_psinh" not in st.session_state:
@@ -201,54 +201,38 @@ with st.expander("➕ Nhập ticket mới", expanded=True):
     if "gio_done" not in st.session_state:
         st.session_state["gio_done"] = _now_vn_rounded().time()
 
-    # ===== Form inputs =====
+    # ===== Form inputs (dùng key để nhớ giá trị) =====
     c1, c2 = st.columns(2)
 
-    ten_cty = c1.text_input("Tên công ty *").strip()
-    # Ngày/Giờ phát sinh: dùng key để giữ giá trị đã chọn
-    ngay_psinh = c2.date_input("Ngày phát sinh *",
-                               key="ngay_psinh",
-                               format="YYYY/MM/DD")
-    shd = c1.text_input("SHD (Số HĐ/Số hồ sơ) *").strip()
-    gio_psinh = c2.time_input("Giờ phát sinh *",
-                              key="gio_psinh",
-                              step=60)
+    ten_cty = c1.text_input("Tên công ty *", key="ten_cty")
+    ngay_psinh = c2.date_input("Ngày phát sinh *", key="ngay_psinh", format="YYYY/MM/DD")
+    shd = c1.text_input("SHD (Số HĐ/Số hồ sơ) *", key="shd")
+    gio_psinh = c2.time_input("Giờ phát sinh *", key="gio_psinh", step=60)
 
-    nguyen_nhan = c1.text_input("Nguyên nhân đầu vào *").strip()
-    tt_user = c2.text_input("TT User").strip()
+    nguyen_nhan = c1.text_input("Nguyên nhân đầu vào *", key="nguyen_nhan")
+    tt_user = c2.text_input("TT User", key="tt_user")
 
-    cach_xl = c1.text_area("Cách xử lý * (mô tả ngắn gọn)").strip()
+    cach_xl = c1.text_area("Cách xử lý * (mô tả ngắn gọn)", key="cach_xl")
 
-    tinh_trang = c2.selectbox("Tình trạng *", ["Mới", "Đang xử lý", "Hoàn thành", "Tạm dừng"])
+    tinh_trang = c2.selectbox("Tình trạng *",
+                              ["Mới", "Đang xử lý", "Hoàn thành", "Tạm dừng"],
+                              key="tinh_trang")
 
-    # End ticket
-    end_ticket = c1.selectbox(
-        "End ticket",
-        ["Remote", "Onsite", "Tạo Checklist cho chi nhánh"],
-        index=0,
-    )
+    end_ticket = c1.selectbox("End ticket",
+                              ["Remote", "Onsite", "Tạo Checklist cho chi nhánh"],
+                              index=0, key="end_ticket")
 
-    ktv = c2.text_input("KTV phụ trách").strip()
+    ktv = c2.text_input("KTV phụ trách", key="ktv")
 
-    # Có thời gian hoàn thành?
-    co_tg_hoanthanh = st.checkbox("Có thời gian hoàn thành?",
-                                  key="co_tg_hoanthanh")
+    co_tg_hoanthanh = st.checkbox("Có thời gian hoàn thành?", key="co_tg_hoanthanh")
     if co_tg_hoanthanh:
         c3, c4 = st.columns(2)
-        ngay_done = c3.date_input("Ngày hoàn thành",
-                                  key="ngay_done",
-                                  format="YYYY/MM/DD")
-        gio_done = c4.time_input("Giờ hoàn thành",
-                                 key="gio_done",
-                                 step=60)
-        # Kết quả UTC ISO
-        tg_done_utc = local_to_utc_iso(st.session_state["ngay_done"],
-                                       st.session_state["gio_done"])
+        ngay_done = c3.date_input("Ngày hoàn thành", key="ngay_done", format="YYYY/MM/DD")
+        gio_done = c4.time_input("Giờ hoàn thành", key="gio_done", step=60)
+        tg_done_utc = local_to_utc_iso(st.session_state["ngay_done"], st.session_state["gio_done"])
     else:
-        # Nếu bỏ chọn, xóa giá trị ghi xuống để không tính SLA
         tg_done_utc = ""
 
-    # Nút reset thời gian về "bây giờ" (tuỳ chọn)
     if st.button("⟲ Đặt lại giờ về hiện tại (VN)"):
         st.session_state["gio_psinh"] = _now_vn_rounded().time()
         if st.session_state.get("co_tg_hoanthanh"):
@@ -257,14 +241,14 @@ with st.expander("➕ Nhập ticket mới", expanded=True):
 
     # ===== Lưu =====
     if st.button("Lưu vào Google Sheet", type="primary"):
-        required = [ten_cty, shd, nguyen_nhan, cach_xl, tinh_trang]
-        if any(not x for x in required):
+        required = [st.session_state["ten_cty"], st.session_state["shd"],
+                    st.session_state["nguyen_nhan"], st.session_state["cach_xl"],
+                    st.session_state["tinh_trang"]]
+        if any(not (x or "").strip() for x in required):
             st.error("Vui lòng điền đầy đủ các trường bắt buộc (*)")
         else:
             try:
-                # Lấy từ session_state để đảm bảo đúng giờ người dùng đã chọn
-                tg_ps_utc = local_to_utc_iso(st.session_state["ngay_psinh"],
-                                             st.session_state["gio_psinh"])
+                tg_ps_utc = local_to_utc_iso(st.session_state["ngay_psinh"], st.session_state["gio_psinh"])
                 created_utc = datetime.now(timezone.utc).isoformat()
 
                 # SLA (giờ)
@@ -275,29 +259,39 @@ with st.expander("➕ Nhập ticket mới", expanded=True):
                 else:
                     sla_gio = ""
 
-                # Thứ tự row KHỚP 100% COLUMNS (có End ticket)
                 row = [
-                    ten_cty,                   # "Tên công ty"
-                    shd,                       # "SHD"
-                    nguyen_nhan,               # "Nguyên nhân đầu vào"
-                    tt_user,                   # "TT User"
-                    tinh_trang,                # "Tình trạng"
-                    end_ticket,                # "End ticket"
-                    cach_xl,                   # "Cách xử lý"
-                    tg_ps_utc,                 # "Thời gian phát sinh (UTC ISO)"
-                    tg_done_utc,               # "Thời gian hoàn thành (UTC ISO)"
-                    ktv,                       # "KTV"
-                    created_utc,               # "CreatedAt (UTC ISO)"
-                    sla_gio,                   # "SLA_gio"
+                    st.session_state["ten_cty"],     # Tên công ty
+                    st.session_state["shd"],         # SHD
+                    st.session_state["nguyen_nhan"], # Nguyên nhân đầu vào
+                    st.session_state["tt_user"],     # TT User
+                    st.session_state["tinh_trang"],  # Tình trạng
+                    st.session_state["end_ticket"],  # End ticket
+                    st.session_state["cach_xl"],     # Cách xử lý
+                    tg_ps_utc,                       # Thời gian phát sinh (UTC ISO)
+                    tg_done_utc,                     # Thời gian hoàn thành (UTC ISO)
+                    st.session_state["ktv"],         # KTV
+                    created_utc,                     # CreatedAt (UTC ISO)
+                    sla_gio,                         # SLA_gio
                 ]
                 append_ticket(row)
                 st.cache_data.clear()
                 st.success("✅ Đã lưu ticket vào Google Sheet!")
                 st.balloons()
+
+                # ===== Reset form về TRẮNG để nhập ticket mới =====
+                for field in ["ten_cty", "shd", "nguyen_nhan", "tt_user", "cach_xl", "ktv"]:
+                    st.session_state[field] = ""
+                st.session_state["tinh_trang"] = "Mới"
+                st.session_state["end_ticket"] = "Remote"
+                st.session_state["co_tg_hoanthanh"] = False
+                st.session_state["ngay_psinh"] = datetime.now(VN_TZ).date()
+                st.session_state["gio_psinh"] = _now_vn_rounded().time()
+                st.session_state["ngay_done"] = datetime.now(VN_TZ).date()
+                st.session_state["gio_done"] = _now_vn_rounded().time()
+
             except Exception as e:
                 log_error("APPEND", e)
                 st.error(f"❌ Lỗi khi ghi Google Sheet: {e}")
-
 
 st.divider()
 
@@ -331,19 +325,10 @@ try:
         if flt_ktv.strip():
             df = df[df["KTV"].astype(str).str.contains(flt_ktv.strip(), case=False, na=False)]
 
-        # Hiển thị gọn gàng
         show_cols = [
-            "Tên công ty",
-            "SHD",
-            "Nguyên nhân đầu vào",
-            "TT User",
-            "Tình trạng",
-            "End ticket",      # NEW
-            "Cách xử lý",
-            "Phát sinh (VN)",
-            "Hoàn thành (VN)",
-            "KTV",
-            "SLA_gio",
+            "Tên công ty", "SHD", "Nguyên nhân đầu vào", "TT User",
+            "Tình trạng", "End ticket", "Cách xử lý",
+            "Phát sinh (VN)", "Hoàn thành (VN)", "KTV", "SLA_gio",
         ]
         cols_view = [c for c in show_cols if c in df.columns]
 

@@ -29,12 +29,7 @@ ADMIN_EMAILS = {
     "duydoan747@gmail.com",   # admin
 }
 VIEWER_EMAILS = {
-    "duydv3@fpt.com",
-    "congnv17@fpt.com",
-    "vuln3@fpt.com",
-    "vinhpt14@fpt.com",
-    "phubq2@fpt.com",
-    "phuongnam.kietnp@fpt.net",
+    "duydominic33@gmail.com",
 }
 ADMIN_EMAILS  = {e.strip().lower() for e in ADMIN_EMAILS}
 VIEWER_EMAILS = {e.strip().lower() for e in VIEWER_EMAILS}

@@ -1,5 +1,6 @@
 # app.py
 from __future__ import annotations
+
 import io
 from datetime import datetime, date, time, timezone
 from zoneinfo import ZoneInfo
@@ -11,7 +12,7 @@ from google.oauth2.service_account import Credentials
 from gspread.exceptions import WorksheetNotFound
 
 # =========================
-# Config cơ bản
+# Cấu hình chung
 # =========================
 st.set_page_config(
     page_title="IT Helpdesk → SGDAVH",
@@ -23,39 +24,27 @@ APP_TITLE = "IT Helpdesk → SGDAVH"
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
 # =========================
-# PHÂN QUYỀN (ADMIN + VIEWER)
+# AUTHEN bằng email Streamlit
 # =========================
-ADMIN_EMAILS = {
-    "duydoan747@gmail.com",   # admin
+ADMIN_EMAIL = "duydoan747@gmail.com"
+ALLOWED_EMAILS = {
+    "duydominic3@gmail.com",
 }
-VIEWER_EMAILS = {
-    "duydominic33@gmail.com",
-}
-ADMIN_EMAILS  = {e.strip().lower() for e in ADMIN_EMAILS}
-VIEWER_EMAILS = {e.strip().lower() for e in VIEWER_EMAILS}
-ALL_ALLOWED   = ADMIN_EMAILS | VIEWER_EMAILS
 
 user_info = getattr(st, "experimental_user", None)
 email_norm = (getattr(user_info, "email", None) or "").strip().lower()
 
-st.sidebar.info(f"👤 Email đăng nhập hiện tại: {email_norm or 'N/A'}")
+with st.sidebar:
+    st.info(f"📧 Email đăng nhập hiện tại: {email_norm or 'N/A'}")
 
-def is_admin(e: str) -> bool:
-    return e in ADMIN_EMAILS
-
-def is_allowed(e: str) -> bool:
-    return e in ALL_ALLOWED
-
-if not email_norm:
-    st.warning("App đang ở chế độ public hoặc chưa nhận được email đăng nhập. "
-               "Bạn chỉ có thể xem báo cáo. Hãy bật Viewer authentication để hạn chế quyền.")
-    CAN_CREATE = False
+# Admin luôn có quyền
+if email_norm == ADMIN_EMAIL:
+    pass
+elif email_norm in ALLOWED_EMAILS:
+    pass
 else:
-    CAN_CREATE = is_allowed(email_norm)
-
-if email_norm and not CAN_CREATE:
-    st.error("⛔ Bạn không có quyền tạo ticket. Bạn chỉ có thể xem báo cáo.")
-    # Chỉ xem báo cáo, không được tạo ticket
+    st.error("⛔ Bạn không có quyền truy cập app này. Liên hệ admin để được cấp quyền.")
+    st.stop()
 
 # =========================
 # Google Sheets
@@ -105,7 +94,11 @@ def read_all_as_dataframe() -> pd.DataFrame:
     if not values or len(values) == 1:
         return pd.DataFrame(columns=COLUMNS)
 
-    df = pd.DataFrame(values[1:], columns=values[0])
+    header = values[0]
+    rows = values[1:]
+    df = pd.DataFrame(rows, columns=header)
+
+    # Thêm cột thiếu
     for col in COLUMNS:
         if col not in df.columns:
             df[col] = ""
@@ -116,14 +109,16 @@ def read_all_as_dataframe() -> pd.DataFrame:
     has_both = df["Thời gian phát sinh (UTC ISO)"].notna() & df["Thời gian hoàn thành (UTC ISO)"].notna()
     df.loc[has_both, "SLA_gio"] = (
         (df.loc[has_both, "Thời gian hoàn thành (UTC ISO)"] - df.loc[has_both, "Thời gian phát sinh (UTC ISO)"])
-        .dt.total_seconds() / 3600.0
+        .dt.total_seconds()
+        / 3600.0
     )
     df["SLA_gio"] = pd.to_numeric(df["SLA_gio"], errors="coerce")
 
     df["Phát sinh (VN)"] = df["Thời gian phát sinh (UTC ISO)"].dt.tz_convert(VN_TZ)
     df["Hoàn thành (VN)"] = df["Thời gian hoàn thành (UTC ISO)"].dt.tz_convert(VN_TZ)
 
-    return df.sort_values(by="Thời gian phát sinh (UTC ISO)", ascending=False, na_position="last").reset_index(drop=True)
+    df = df.sort_values(by=["Thời gian phát sinh (UTC ISO)"], ascending=False, na_position="last").reset_index(drop=True)
+    return df
 
 def to_csv_bytes(df: pd.DataFrame) -> bytes:
     out = io.StringIO()
@@ -139,79 +134,86 @@ def append_ticket(row: list[str]) -> None:
     ws.append_row(row, value_input_option="RAW")
 
 # =========================
-# UI
+# UI nhập ticket
 # =========================
 st.title(APP_TITLE)
 st.caption("Lưu & báo cáo ticket trực tiếp trên Google Sheets (Service Account qua Secrets)")
 
-# Form tạo ticket (chỉ người có quyền mới thấy)
-if CAN_CREATE:
-    with st.expander("➕ Nhập ticket mới", expanded=True):
-        with st.form("ticket_form", clear_on_submit=True):
-            c1, c2 = st.columns(2)
+with st.expander("➕ Nhập ticket mới", expanded=True):
+    c1, c2 = st.columns(2)
 
-            ten_cty = c1.text_input("Tên công ty *")
-            ngay_psinh = c2.date_input("Ngày phát sinh *", value=datetime.now(VN_TZ).date(), format="YYYY/MM/DD")
-            shd = c1.text_input("SHĐ (Số HĐ/Số hồ sơ) *")
-            gio_psinh = c2.time_input("Giờ phát sinh *", value=datetime.now(VN_TZ).time().replace(second=0), step=60)
+    ten_cty = c1.text_input("Tên công ty *", key="ten_cty")
+    ngay_psinh = c2.date_input("Ngày phát sinh *", value=datetime.now(VN_TZ).date(), format="YYYY/MM/DD", key="ngay_psinh")
+    shd = c1.text_input("SHĐ (Số HĐ/Số hồ sơ) *", key="shd")
+    gio_psinh = c2.time_input("Giờ phát sinh *", value=datetime.now(VN_TZ).time().replace(second=0), step=60, key="gio_psinh")
 
-            nguyen_nhan = c1.text_input("Nguyên nhân đầu vào *")
-            tt_user = c2.text_input("TT User")
-            cach_xl = c1.text_area("Cách xử lý * (mô tả ngắn gọn)")
-            end_ticket = c2.selectbox("End ticket", ["Remote", "Onsite", "Tạo Checklist cho chi nhánh"])
+    nguyen_nhan = c1.text_input("Nguyên nhân đầu vào *", key="nguyen_nhan")
+    tt_user = c2.text_input("TT User", key="tt_user")
+    cach_xl = c1.text_area("Cách xử lý * (mô tả ngắn gọn)", key="cach_xl")
 
-            tinh_trang = c1.selectbox("Tình trạng *", ["Mới", "Đang xử lý", "Hoàn thành", "Tạm dừng"])
-            ktv = c2.text_input("KTV phụ trách")
+    tinh_trang = c2.selectbox("Tình trạng *", ["Mới", "Đang xử lý", "Hoàn thành", "Tạm dừng"], key="tinh_trang")
+    ktv = c1.text_input("KTV phụ trách", key="ktv")
 
-            co_tg_hoanthanh = st.checkbox("Có thời gian hoàn thành?")
-            if co_tg_hoanthanh:
-                c3, c4 = st.columns(2)
-                ngay_done = c3.date_input("Ngày hoàn thành", value=datetime.now(VN_TZ).date(), format="YYYY/MM/DD")
-                gio_done = c4.time_input("Giờ hoàn thành", value=datetime.now(VN_TZ).time().replace(second=0), step=60)
-                tg_done_utc = local_to_utc_iso(ngay_done, gio_done)
-            else:
-                tg_done_utc = ""
+    end_ticket = c2.selectbox("End ticket", ["Remote", "Onsite", "Tạo Checklist cho chi nhánh"], key="end_ticket")
 
-            submitted = st.form_submit_button("Lưu vào Google Sheet", type="primary")
-            if submitted:
-                if not (ten_cty and shd and nguyen_nhan and cach_xl and tinh_trang):
-                    st.error("Vui lòng điền đầy đủ các trường bắt buộc (*)")
+    co_tg_hoanthanh = st.checkbox("Có thời gian hoàn thành?", key="co_tg")
+    if co_tg_hoanthanh:
+        c3, c4 = st.columns(2)
+        ngay_done = c3.date_input("Ngày hoàn thành", value=datetime.now(VN_TZ).date(), format="YYYY/MM/DD", key="ngay_done")
+        gio_done = c4.time_input("Giờ hoàn thành", value=datetime.now(VN_TZ).time().replace(second=0), step=60, key="gio_done")
+        tg_done_utc = local_to_utc_iso(ngay_done, gio_done)
+    else:
+        tg_done_utc = ""
+
+    if st.button("Lưu vào Google Sheet", type="primary"):
+        required = [ten_cty, shd, nguyen_nhan, cach_xl, tinh_trang]
+        if any(not x.strip() for x in required):
+            st.error("⚠️ Vui lòng điền đầy đủ các trường bắt buộc (*)")
+        else:
+            try:
+                tg_ps_utc = local_to_utc_iso(ngay_psinh, gio_psinh)
+                created_utc = datetime.now(timezone.utc).isoformat()
+
+                if tg_done_utc:
+                    start = datetime.fromisoformat(tg_ps_utc.replace("Z", "+00:00"))
+                    end = datetime.fromisoformat(tg_done_utc.replace("Z", "+00:00"))
+                    sla_gio = round((end - start).total_seconds() / 3600.0, 2)
                 else:
-                    try:
-                        tg_ps_utc = local_to_utc_iso(ngay_psinh, gio_psinh)
-                        created_utc = datetime.now(timezone.utc).isoformat()
+                    sla_gio = ""
 
-                        if tg_done_utc:
-                            start = datetime.fromisoformat(tg_ps_utc.replace("Z", "+00:00"))
-                            end = datetime.fromisoformat(tg_done_utc.replace("Z", "+00:00"))
-                            sla_gio = round((end - start).total_seconds() / 3600.0, 2)
-                        else:
-                            sla_gio = ""
+                row = [
+                    ten_cty,
+                    shd,
+                    nguyen_nhan,
+                    tt_user,
+                    tinh_trang,
+                    cach_xl,
+                    end_ticket,
+                    tg_ps_utc,
+                    tg_done_utc,
+                    ktv,
+                    created_utc,
+                    sla_gio,
+                ]
+                append_ticket(row)
 
-                        row = [
-                            ten_cty,
-                            shd,
-                            nguyen_nhan,
-                            tt_user,
-                            tinh_trang,
-                            cach_xl,
-                            end_ticket,
-                            tg_ps_utc,
-                            tg_done_utc,
-                            ktv,
-                            created_utc,
-                            sla_gio,
-                        ]
-                        append_ticket(row)
-                        st.success("✅ Đã lưu ticket vào Google Sheet!")
-                        st.balloons()
-                    except Exception as e:
-                        st.error(f"❌ Lỗi khi ghi Google Sheet: {e}")
+                st.success("✅ Đã lưu ticket vào Google Sheet!")
+                st.session_state.ten_cty = ""
+                st.session_state.shd = ""
+                st.session_state.nguyen_nhan = ""
+                st.session_state.tt_user = ""
+                st.session_state.cach_xl = ""
+                st.session_state.tinh_trang = "Mới"
+                st.session_state.ktv = ""
+                st.session_state.end_ticket = "Remote"
+                st.session_state.co_tg = False
+            except Exception as e:
+                st.error(f"❌ Lỗi khi ghi Google Sheet: {e}")
 
 st.divider()
 
 # =========================
-# Báo cáo
+# Báo cáo & lọc dữ liệu
 # =========================
 st.header("📊 Báo cáo & Lọc dữ liệu")
 
@@ -231,8 +233,7 @@ try:
         m_end = datetime(to_day.year, to_day.month, to_day.day, 23, 59, 59, tzinfo=VN_TZ)
 
         df = df_raw.copy()
-        in_range = df["Phát sinh (VN)"].between(m_start, m_end, inclusive="both")
-        df = df[in_range]
+        df = df[df["Phát sinh (VN)"].between(m_start, m_end, inclusive="both")]
 
         if flt_cty.strip():
             df = df[df["Tên công ty"].str.contains(flt_cty.strip(), case=False, na=False)]
@@ -240,18 +241,10 @@ try:
             df = df[df["KTV"].str.contains(flt_ktv.strip(), case=False, na=False)]
 
         show_cols = [
-            "Tên công ty",
-            "SHĐ",
-            "Nguyên nhân đầu vào",
-            "TT User",
-            "Tình trạng",
-            "Cách xử lý",
-            "End ticket",
-            "Phát sinh (VN)",
-            "Hoàn thành (VN)",
-            "KTV",
-            "SLA_gio",
+            "Tên công ty", "SHĐ", "Nguyên nhân đầu vào", "TT User", "Tình trạng",
+            "Cách xử lý", "End ticket", "Phát sinh (VN)", "Hoàn thành (VN)", "KTV", "SLA_gio"
         ]
+
         st.dataframe(
             df[show_cols].assign(
                 **{
@@ -270,4 +263,4 @@ try:
             mime="text/csv",
         )
 except Exception as e:
-    st.error(f"Đã gặp lỗi khi tải dữ liệu: {e}")
+    st.error(f"❌ Đã gặp lỗi khi tải dữ liệu: {e}")

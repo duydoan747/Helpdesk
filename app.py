@@ -1,3 +1,4 @@
+# app.py
 from __future__ import annotations
 
 import io
@@ -22,56 +23,46 @@ st.set_page_config(
 APP_TITLE = "IT Helpdesk → SGDAVH"
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
-# Khởi tạo session state nếu chưa có
-if "expander_open" not in st.session_state:
-    st.session_state.expander_open = True
+def now_vn_rounded():
+    n = datetime.now(VN_TZ)
+    return n.replace(second=0, microsecond=0)
 
 # =========================
-# AUTHEN bằng email Streamlit
+# AUTH bằng email Streamlit (ADMIN + allowlist)
 # =========================
 ADMIN_EMAIL = "duydoan747@gmail.com"
-ALLOWED_EMAILS = {
-    "duydominic3@gmail.com",
-}
+ALLOWED_EMAILS = {"duydominic3@gmail.com"}
 
-# Sử dụng st.user
-user_info = getattr(st, "user", None)
-email_norm = (getattr(user_info, "email", None) or "").strip().lower()
+def _extract_email_from_userinfo(user_info) -> str:
+    """Trả về email dạng lower-case; hỗ trợ cả dict và object."""
+    if not user_info:
+        return ""
+    if isinstance(user_info, dict):
+        return (user_info.get("email") or "").strip().lower()
+    return (getattr(user_info, "email", "") or "").strip().lower()
 
-# Giải pháp tạm thời cho môi trường cục bộ: Thêm input email nếu email_norm trống
+user_info = getattr(st, "experimental_user", None)
+email_norm = _extract_email_from_userinfo(user_info)
+
+with st.sidebar:
+    st.info(f"📧 Email đăng nhập hiện tại: {email_norm or 'N/A'}")
+
+# BẮT BUỘC phải nhận được email (Viewer auth ON). Nếu không, dừng app.
 if not email_norm:
-    with st.sidebar:
-        email_norm = st.text_input("Nhập email để kiểm tra (chỉ dùng khi chạy cục bộ)", "").strip().lower()
-    st.sidebar.info(f"📧 Email đang sử dụng (cục bộ): {email_norm}")
-else:
-    with st.sidebar:
-        st.info(f"📧 Email đăng nhập hiện tại: {email_norm or 'N/A'}")
+    st.error("⛔ Chưa nhận được email đăng nhập. Bật Viewer authentication trong Settings → Sharing và đăng nhập lại (mở bằng tab Ẩn danh).")
+    st.stop()
 
-# Admin luôn có quyền
-if email_norm == ADMIN_EMAIL:
-    is_admin = True
-elif email_norm in ALLOWED_EMAILS:
-    is_admin = False
-else:
+# Kiểm tra quyền
+is_admin = (email_norm == ADMIN_EMAIL)
+if (not is_admin) and (email_norm not in ALLOWED_EMAILS):
     st.error("⛔ Bạn không có quyền truy cập app này. Liên hệ admin để được cấp quyền.")
     st.stop()
 
 # =========================
-# Google Sheets (Tạm thời hard-code)
-SHEET_ID = "1I9zuVUfkbWS7oIMVYB127IEuEKqFEMXZ1T1ApIcPc"  # Thay bằng SHEET_ID thực tế
-GCP_SERVICE_ACCOUNT = {
-    "type": "service_account",
-    "project_id": "your-project-id",
-    "private_key_id": "your-private-key-id",
-    "private_key": "your-private-key",
-    "client_email": "your-client-email",
-    "client_id": "your-client-id",
-    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-    "token_uri": "https://oauth2.googleapis.com/token",
-    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-    "client_x509_cert_url": "your-client-x509-cert-url"
-}
-
+# Google Sheets
+# =========================
+SHEET_ID = st.secrets["SHEET_ID"]
+GCP_SERVICE_ACCOUNT = st.secrets["gcp_service_account"]
 SHEET_NAME = "Data"
 
 COLUMNS = [
@@ -159,59 +150,66 @@ def append_ticket(row: list[str]) -> None:
 st.title(APP_TITLE)
 st.caption("Lưu & báo cáo ticket trực tiếp trên Google Sheets (Service Account qua Secrets)")
 
-# Khởi tạo session state cho các trường nhập liệu
-if "ten_cty" not in st.session_state:
-    st.session_state.ten_cty = ""
-if "shd" not in st.session_state:
-    st.session_state.shd = ""
-if "nguyen_nhan" not in st.session_state:
-    st.session_state.nguyen_nhan = ""
-if "tt_user" not in st.session_state:
-    st.session_state.tt_user = ""
-if "tinh_trang" not in st.session_state:
-    st.session_state.tinh_trang = "Mới"
-if "cach_xl" not in st.session_state:
-    st.session_state.cach_xl = ""
-if "ktv" not in st.session_state:
-    st.session_state.ktv = ""
-if "end_ticket" not in st.session_state:
-    st.session_state.end_ticket = "Remote"
-if "co_tg" not in st.session_state:
-    st.session_state.co_tg = False
-if "ngay_done" not in st.session_state:
-    st.session_state.ngay_done = datetime.now(VN_TZ).date()
-if "gio_done" not in st.session_state:
-    st.session_state.gio_done = datetime.now(VN_TZ).time().replace(second=0)
+# Khởi tạo session state mặc định để tiện reset sau khi lưu
+if "defaults" not in st.session_state:
+    st.session_state.defaults = {
+        "ten_cty": "",
+        "shd": "",
+        "nguyen_nhan": "",
+        "tt_user": "",
+        "tinh_trang": "Mới",
+        "cach_xl": "",
+        "ktv": "",
+        "end_ticket": "Remote",
+        "ngay_psinh": datetime.now(VN_TZ).date(),
+        "gio_psinh": now_vn_rounded().time(),
+        "co_tg": False,
+        "ngay_done": datetime.now(VN_TZ).date(),
+        "gio_done": now_vn_rounded().time(),
+    }
+# Copy defaults → current state (chỉ khi chưa có)
+for k, v in st.session_state.defaults.items():
+    st.session_state.setdefault(k, v)
 
-with st.expander("➕ Nhập ticket mới", expanded=st.session_state.expander_open):
+with st.expander("➕ Nhập ticket mới", expanded=True):
     c1, c2 = st.columns(2)
 
-    ten_cty = c1.text_input("Tên công ty *", value=st.session_state.ten_cty, key="ten_cty_input")
-    ngay_psinh = c2.date_input("Ngày phát sinh *", value=date(2025, 9, 8), key="ngay_psinh_input")  # Giá trị mặc định cố định
-    shd = c1.text_input("SHĐ (Số HĐ/Số hồ sơ) *", value=st.session_state.shd, key="shd_input")
-    gio_psinh = c2.time_input("Giờ phát sinh *", value=time(10, 0), step=60, key="gio_psinh_input")  # Giá trị mặc định cố định
+    ten_cty = c1.text_input("Tên công ty *", value=st.session_state.ten_cty, key="ten_cty")
+    ngay_psinh = c2.date_input("Ngày phát sinh *", value=st.session_state.ngay_psinh, key="ngay_psinh")
+    shd = c1.text_input("SHĐ (Số HĐ/Số hồ sơ) *", value=st.session_state.shd, key="shd")
+    gio_psinh = c2.time_input("Giờ phát sinh *", value=st.session_state.gio_psinh, step=60, key="gio_psinh")
 
-    nguyen_nhan = c1.text_input("Nguyên nhân đầu vào *", value=st.session_state.nguyen_nhan, key="nguyen_nhan_input")
-    tt_user = c2.text_input("TT User", value=st.session_state.tt_user, key="tt_user_input")
-    cach_xl = c1.text_area("Cách xử lý * (mô tả ngắn gọn)", value=st.session_state.cach_xl, key="cach_xl_input")
+    nguyen_nhan = c1.text_input("Nguyên nhân đầu vào *", value=st.session_state.nguyen_nhan, key="nguyen_nhan")
+    tt_user = c2.text_input("TT User", value=st.session_state.tt_user, key="tt_user")
+    cach_xl = c1.text_area("Cách xử lý * (mô tả ngắn gọn)", value=st.session_state.cach_xl, key="cach_xl")
 
-    tinh_trang = c2.selectbox("Tình trạng *", ["Mới", "Đang xử lý", "Hoàn thành", "Tạm dừng"], index=["Mới", "Đang xử lý", "Hoàn thành", "Tạm dừng"].index(st.session_state.tinh_trang), key="tinh_trang_input")
-    ktv = c1.text_input("KTV phụ trách", value=st.session_state.ktv, key="ktv_input")
+    tinh_trang = c2.selectbox(
+        "Tình trạng *",
+        ["Mới", "Đang xử lý", "Hoàn thành", "Tạm dừng"],
+        index=["Mới", "Đang xử lý", "Hoàn thành", "Tạm dừng"].index(st.session_state.tinh_trang),
+        key="tinh_trang",
+    )
+    ktv = c1.text_input("KTV phụ trách", value=st.session_state.ktv, key="ktv")
 
-    end_ticket = c2.selectbox("End ticket", ["Remote", "Onsite", "Tạo Checklist cho chi nhánh"], index=["Remote", "Onsite", "Tạo Checklist cho chi nhánh"].index(st.session_state.end_ticket), key="end_ticket_input")
+    end_ticket = c2.selectbox(
+        "End ticket",
+        ["Remote", "Onsite", "Tạo Checklist cho chi nhánh"],
+        index=["Remote", "Onsite", "Tạo Checklist cho chi nhánh"].index(st.session_state.end_ticket),
+        key="end_ticket",
+    )
 
-    co_tg_hoanthanh = st.checkbox("Có thời gian hoàn thành?", value=st.session_state.co_tg, key="co_tg_input")
+    co_tg_hoanthanh = st.checkbox("Có thời gian hoàn thành?", value=st.session_state.co_tg, key="co_tg")
     if co_tg_hoanthanh:
         c3, c4 = st.columns(2)
-        ngay_done = c3.date_input("Ngày hoàn thành", value=st.session_state.ngay_done, format="YYYY/MM/DD", key="ngay_done_input")
-        gio_done = c4.time_input("Giờ hoàn thành", value=st.session_state.gio_done, step=60, key="gio_done_input")
+        ngay_done = c3.date_input("Ngày hoàn thành", value=st.session_state.ngay_done, key="ngay_done")
+        gio_done = c4.time_input("Giờ hoàn thành", value=st.session_state.gio_done, step=60, key="gio_done")
         tg_done_utc = local_to_utc_iso(ngay_done, gio_done)
     else:
         tg_done_utc = ""
 
     if st.button("Lưu vào Google Sheet", type="primary"):
         required = [ten_cty, shd, nguyen_nhan, cach_xl, tinh_trang]
-        if any(not x.strip() for x in required):
+        if any(not (x or "").strip() for x in required):
             st.error("⚠️ Vui lòng điền đầy đủ các trường bắt buộc (*)")
         else:
             try:
@@ -241,21 +239,11 @@ with st.expander("➕ Nhập ticket mới", expanded=st.session_state.expander_o
                 ]
                 append_ticket(row)
 
-                # Cập nhật session state sau khi lưu
-                st.session_state.ten_cty = ten_cty
-                st.session_state.shd = shd
-                st.session_state.nguyen_nhan = nguyen_nhan
-                st.session_state.tt_user = tt_user
-                st.session_state.tinh_trang = tinh_trang
-                st.session_state.cach_xl = cach_xl
-                st.session_state.ktv = ktv
-                st.session_state.end_ticket = end_ticket
-                st.session_state.co_tg = co_tg_hoanthanh
-                if co_tg_hoanthanh:
-                    st.session_state.ngay_done = ngay_done
-                    st.session_state.gio_done = gio_done
+                # ✅ Reset toàn bộ input về mặc định sau khi lưu
+                for k, v in st.session_state.defaults.items():
+                    st.session_state[k] = v
 
-                st.success("✅ Đã lưu ticket vào Google Sheet!")
+                st.success("✅ Đã lưu ticket vào Google Sheet! (form đã được reset)")
             except Exception as e:
                 st.error(f"❌ Lỗi khi ghi Google Sheet: {e}")
 
@@ -268,7 +256,7 @@ st.header("📊 Báo cáo & Lọc dữ liệu")
 
 c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
 today_vn = datetime.now(VN_TZ).date()
-from_day = c1.date_input("Từ ngày", value=today_vn.replace(day=max(1, today_vn.day - 7)), format="YYYY/MM/DD")
+from_day = c1.date_input("Từ ngày", value=today_vn, format="YYYY/MM/DD")
 to_day = c2.date_input("Đến ngày", value=today_vn, format="YYYY/MM/DD")
 flt_cty = c3.text_input("Lọc theo tên Cty")
 flt_ktv = c4.text_input("Lọc theo KTV")
@@ -298,14 +286,14 @@ try:
             df[show_cols].assign(
                 **{
                     "Phát sinh (VN)": df["Phát sinh (VN)"].dt.strftime("%Y-%m-%d %H:%M:%S"),
-                    "Hoàn thành (VN)": df["Hoàn thành (VN)"].dt.strftime("%Y-%m-%d %H:%M:S"),
+                    "Hoàn thành (VN)": df["Hoàn thành (VN)"].dt.strftime("%Y-%m-%d %H:%M:%S"),
                 }
             ),
             use_container_width=True,
             hide_index=True,
         )
 
-        # Chỉ admin mới có quyền tải CSV
+        # Chỉ admin mới tải CSV
         if is_admin:
             st.download_button(
                 "⬇️ Tải CSV đã lọc",

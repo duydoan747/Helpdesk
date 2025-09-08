@@ -30,11 +30,18 @@ ALLOWED_EMAILS = {
     "duydominic3@gmail.com",
 }
 
-user_info = getattr(st, "experimental_user", None)
+# Sử dụng st.user thay vì st.experimental_user
+user_info = getattr(st, "user", None)
 email_norm = (getattr(user_info, "email", None) or "").strip().lower()
 
-with st.sidebar:
-    st.info(f"📧 Email đăng nhập hiện tại: {email_norm or 'N/A'}")
+# Giải pháp tạm thời cho môi trường cục bộ: Thêm input email nếu email_norm trống
+if not email_norm:
+    with st.sidebar:
+        email_norm = st.text_input("Nhập email để kiểm tra (chỉ dùng khi chạy cục bộ)", value="duydoan747@gmail.com").strip().lower()
+    st.sidebar.info(f"📧 Email đang sử dụng (cục bộ): {email_norm}")
+else:
+    with st.sidebar:
+        st.info(f"📧 Email đăng nhập hiện tại: {email_norm or 'N/A'}")
 
 # Admin luôn có quyền
 if email_norm == ADMIN_EMAIL:
@@ -248,7 +255,7 @@ try:
             df[show_cols].assign(
                 **{
                     "Phát sinh (VN)": df["Phát sinh (VN)"].dt.strftime("%Y-%m-%d %H:%M:%S"),
-                    "Hoàn thành (VN)": df["Hoàn thành (VN)"].dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    "Hoàn thành (VN)": df["Hoàn thành (VN)"].dt.strftime("%Y-%m-%d %H:%M:S"),
                 }
             ),
             use_container_width=True,

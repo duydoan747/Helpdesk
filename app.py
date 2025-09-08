@@ -41,16 +41,26 @@ def _extract_email_from_userinfo(user_info) -> str:
         return (user_info.get("email") or "").strip().lower()
     return (getattr(user_info, "email", "") or "").strip().lower()
 
-user_info = getattr(st, "experimental_user", None)
-email_norm = _extract_email_from_userinfo(user_info)
+# --- Auth: lấy email đăng nhập từ Streamlit Cloud ---
+user_info = getattr(st, "user", None)
+email_norm = (getattr(user_info, "email", None) or "").strip().lower()
 
-with st.sidebar:
-    st.info(f"📧 Email đăng nhập hiện tại: {email_norm or 'N/A'}")
-
-# BẮT BUỘC phải nhận được email (Viewer auth ON). Nếu không, dừng app.
 if not email_norm:
-    st.error("⛔ Chưa nhận được email đăng nhập. Bật Viewer authentication trong Settings → Sharing và đăng nhập lại (mở bằng tab Ẩn danh).")
+    st.error("⚠️ Chưa nhận được email đăng nhập từ Streamlit Cloud. Hãy bật Viewer authentication trong Settings → Sharing và đăng nhập lại bằng Google.")
     st.stop()
+
+# Quản lý quyền
+ADMIN_EMAIL = "duydoan747@gmail.com"
+ALLOWED_EMAILS = {"duydominic3@gmail.com"}
+
+if email_norm == ADMIN_EMAIL:
+    is_admin = True
+elif email_norm in ALLOWED_EMAILS:
+    is_admin = False
+else:
+    st.error("⛔ Bạn không có quyền truy cập app này. Liên hệ admin để được cấp quyền.")
+    st.stop()
+
 
 # Kiểm tra quyền
 is_admin = (email_norm == ADMIN_EMAIL)

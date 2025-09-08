@@ -1,1 +1,6 @@
-"secrets.toml" 
+# Bỏ qua file bí mật
+secrets.toml
+*.json
+
+# Bỏ thư mục git (nếu không cần)
+git/

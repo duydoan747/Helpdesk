@@ -1,6 +1,3 @@
-# Bỏ qua file bí mật
+# .gitignore
 secrets.toml
 *.json
-
-# Bỏ thư mục git (nếu không cần)
-git/

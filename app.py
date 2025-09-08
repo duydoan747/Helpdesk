@@ -1,4 +1,3 @@
-# app.py
 from __future__ import annotations
 
 import io
@@ -39,9 +38,9 @@ with st.sidebar:
 
 # Admin luôn có quyền
 if email_norm == ADMIN_EMAIL:
-    pass
+    is_admin = True
 elif email_norm in ALLOWED_EMAILS:
-    pass
+    is_admin = False
 else:
     st.error("⛔ Bạn không có quyền truy cập app này. Liên hệ admin để được cấp quyền.")
     st.stop()
@@ -256,11 +255,15 @@ try:
             hide_index=True,
         )
 
-        st.download_button(
-            "⬇️ Tải CSV đã lọc",
-            data=to_csv_bytes(df[show_cols]),
-            file_name=f"helpdesk_{from_day}_{to_day}.csv",
-            mime="text/csv",
-        )
+        # Chỉ admin mới có quyền tải CSV
+        if is_admin:
+            st.download_button(
+                "⬇️ Tải CSV đã lọc",
+                data=to_csv_bytes(df[show_cols]),
+                file_name=f"helpdesk_{from_day}_{to_day}.csv",
+                mime="text/csv",
+            )
+        else:
+            st.info("Chỉ admin mới có quyền tải báo cáo CSV.")
 except Exception as e:
     st.error(f"❌ Đã gặp lỗi khi tải dữ liệu: {e}")

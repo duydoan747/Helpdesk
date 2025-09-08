@@ -30,14 +30,14 @@ ALLOWED_EMAILS = {
     "duydominic3@gmail.com",
 }
 
-# Sử dụng st.user thay vì st.experimental_user
+# Sử dụng st.user
 user_info = getattr(st, "user", None)
 email_norm = (getattr(user_info, "email", None) or "").strip().lower()
 
 # Giải pháp tạm thời cho môi trường cục bộ: Thêm input email nếu email_norm trống
 if not email_norm:
     with st.sidebar:
-        email_norm = st.text_input("Nhập email để kiểm tra (chỉ dùng khi chạy cục bộ)", value="duydoan747@gmail.com").strip().lower()
+        email_norm = st.text_input("Nhập email để kiểm tra (chỉ dùng khi chạy cục bộ)", "").strip().lower()
     st.sidebar.info(f"📧 Email đang sử dụng (cục bộ): {email_norm}")
 else:
     with st.sidebar:
@@ -53,9 +53,21 @@ else:
     st.stop()
 
 # =========================
-# Google Sheets
-# =========================
-SHEET_ID: str = st.secrets["SHEET_ID"]
+# Google Sheets (Tạm thời hard-code)
+SHEET_ID = "1I9zuVUfkbWS7oIMVYB127IEuEKqFEMXZ1T1ApIcPc"  # Thay bằng SHEET_ID thực tế
+GCP_SERVICE_ACCOUNT = {
+    "type": "service_account",
+    "project_id": "your-project-id",
+    "private_key_id": "your-private-key-id",
+    "private_key": "your-private-key",
+    "client_email": "your-client-email",
+    "client_id": "your-client-id",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_x509_cert_url": "your-client-x509-cert-url"
+}
+
 SHEET_NAME = "Data"
 
 COLUMNS = [
@@ -74,12 +86,10 @@ COLUMNS = [
 ]
 
 def get_gspread_client_service():
-    sa_info = st.secrets["gcp_service_account"]
-    scopes = [
+    creds = Credentials.from_service_account_info(GCP_SERVICE_ACCOUNT, scopes=[
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive",
-    ]
-    creds = Credentials.from_service_account_info(sa_info, scopes=scopes)
+    ])
     return gspread.authorize(creds)
 
 @st.cache_resource(show_spinner=False)
@@ -191,28 +201,20 @@ with st.expander("➕ Nhập ticket mới", expanded=True):
                     ten_cty,
                     shd,
                     nguyen_nhan,
-                    tt_user,
+                    tt_user or "",  # Đảm bảo không bỏ sót trường trống
                     tinh_trang,
                     cach_xl,
                     end_ticket,
                     tg_ps_utc,
                     tg_done_utc,
-                    ktv,
+                    ktv or "",  # Đảm bảo không bỏ sót trường trống
                     created_utc,
                     sla_gio,
                 ]
                 append_ticket(row)
 
                 st.success("✅ Đã lưu ticket vào Google Sheet!")
-                st.session_state.ten_cty = ""
-                st.session_state.shd = ""
-                st.session_state.nguyen_nhan = ""
-                st.session_state.tt_user = ""
-                st.session_state.cach_xl = ""
-                st.session_state.tinh_trang = "Mới"
-                st.session_state.ktv = ""
-                st.session_state.end_ticket = "Remote"
-                st.session_state.co_tg = False
+                st.experimental_rerun()  # Làm mới giao diện thay vì reset session state
             except Exception as e:
                 st.error(f"❌ Lỗi khi ghi Google Sheet: {e}")
 
